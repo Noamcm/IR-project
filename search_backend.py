@@ -14,29 +14,159 @@ from nltk.corpus import stopwords
 # from time import time
 # from timeit import timeit
 # import os
-# import nltk
-# import hashlib
+import hashlib
 # import itertools
 # import sys
 # import pyspark
 import builtins
-import math
-import numpy as np
+# import math
+# import numpy as np
 import pandas as pd
 import pickle
-import re
+# import re
 from nltk.stem.porter import *
 from BM25_from_index import *
-
 
 stemmer = PorterStemmer()
 all_stopwords = frozenset(stopwords.words('english'))
 RE_WORD = re.compile(r"""[\#\@\w](['\-]?\w){2,24}""", re.UNICODE)
-# class search_backend:
+
+
+# ************************** CREATE INDEXES *******************************
+
+# !mkdir text title anchor
+def _hash(s):
+    return hashlib.blake2b(bytes(s, encoding='utf8'), digest_size=5).hexdigest()
+
 
 def tokenize(text):
     list_of_tokens = [token.group() for token in RE_WORD.finditer(text.lower()) if token.group() not in all_stopwords]
     return list_of_tokens
+
+
+def doc_count(text, doc_id):
+    tokens = tokenize(text)
+    countTokens = OrderedDict(Counter(tokens))
+    countTokens_len = builtins.sum(countTokens.values())
+    return doc_id, countTokens_len
+
+
+def word_count(text, doc_id):
+    tokens = tokenize(text)
+    countTokens = OrderedDict(Counter(tokens))
+    return list(map(lambda x: (x, (doc_id, countTokens[x])), countTokens.keys()))
+
+
+def reduce_word_counts(unsorted_pl):
+    return sorted(unsorted_pl, key=lambda x: x[1], reverse=True)
+
+
+def calculate_df(postings):
+    return postings.map(lambda x: (x[0], len(x[1])))
+
+
+NUM_BUCKETS = 124
+
+
+def token2bucket_id(token):
+    return int(_hash(token), 16) % NUM_BUCKETS
+
+
+def partition_postings_and_write(postings, basedir):
+    newPostings = postings.map(lambda x: (token2bucket_id(x[0]), x))
+    words2buckets = newPostings.groupByKey()
+    return words2buckets.map(lambda x: InvertedIndex.write_a_posting_list(x, basedir))
+
+
+def countForDict(posting_locs_list):
+    super_posting_locs = defaultdict(list)
+    for posting_loc in posting_locs_list:
+        for k, v in posting_loc.items():
+            super_posting_locs[k].extend(v)
+    return super_posting_locs
+
+
+def createIndex(doc_rdd, directory):
+    inverted = InvertedIndex()
+    word_counts = doc_rdd.flatMap(lambda x: word_count(x[0], x[1]))
+    postings = word_counts.groupByKey().mapValues(reduce_word_counts)
+    # postings_filtered = postings.filter(lambda x: len(x[1])>10)
+    df_ = calculate_df(postings)
+    inverted.df = df_.collectAsMap()
+    word_counter = postings.map(lambda x: (x[0], builtins.sum([y[1] for y in x[1]])))
+    inverted.term_total = Counter(word_counter.collectAsMap())
+    posting_locs_list = partition_postings_and_write(postings, directory).collect()
+    inverted.posting_locs = countForDict(posting_locs_list)
+    return inverted
+
+
+def writeIdx(inverted, directory, name):
+    inverted.write_index(directory, name)
+    inverted.write_dct(directory, name + '_dct')
+
+
+def create_all_indexes(doc_title_pairs, doc_text_pairs, doc_anchor_text_pairs):  # all inputs are rdd after processing
+    title_index = createIndex(doc_title_pairs, 'title')
+    title_index.dct = doc_title_pairs.map(lambda x: (x[1], x[0])).collectAsMap()
+    writeIdx(title_index, 'title', 'index_title')
+
+    text_index = createIndex(doc_text_pairs, 'text')
+    word_counts_length = doc_text_pairs.map(lambda x: doc_count(x[0], x[1]))  # only body
+    text_index.dct = word_counts_length.collectAsMap()  # only body
+    writeIdx(text_index, 'text', 'index_text')
+
+    anchor_index = createIndex(doc_anchor_text_pairs, 'anchor')
+    writeIdx(anchor_index, 'anchor', 'index_anchor')
+
+    createAndWriteImprovedIndex(doc_title_pairs, 'search_title', 'index_title')
+    createAndWriteImprovedIndex(doc_text_pairs, 'search_text', 'index_text')
+
+
+# ************************** CREATE IMPROVED INDEXES *******************************
+
+# !mkdir search_text search_title
+
+
+def improved_tokenize(text):
+    list_of_tokens = [stemmer.stem(token.group()) for token in RE_WORD.finditer(text.lower()) if
+                      token.group() not in all_stopwords]  ##is it work?
+    return list_of_tokens
+
+
+def improved_word_count(text, doc_id):
+    tokens = [stemmer.stem(token.group()) for token in RE_WORD.finditer(text.lower())]
+    countTokens = OrderedDict(Counter(tokens))
+    dict_keys = list(countTokens.keys())
+    for token in dict_keys:
+        if token in all_stopwords:
+            countTokens.pop(token)
+    return list(map(lambda x: (x, (doc_id, countTokens[x])), countTokens.keys()))
+
+
+def improved_reduce_word_counts(unsorted_pl):
+    return sorted(unsorted_pl, key=lambda x: x[1], reverse=True)[:100]
+
+
+def createAndWriteImprovedIndex(doc_rdd, directory, name):
+    inverted = InvertedIndex()
+    word_counts = doc_rdd.flatMap(lambda x: word_count(x[0], x[1]))
+    postings = word_counts.groupByKey().mapValues(improved_reduce_word_counts)
+    # #postings_filtered = postings.filter(lambda x: len(x[1])>10)
+    df_ = calculate_df(postings)
+    inverted.df = df_.collectAsMap()
+    word_counter = postings.map(lambda x: (x[0], builtins.sum([y[1] for y in x[1]])))
+    inverted.term_total = Counter(word_counter.collectAsMap())
+    posting_locs_list = partition_postings_and_write(postings, directory).collect()  ##collect?
+    inverted.posting_locs = countForDict(posting_locs_list)
+    word_counts_length = doc_rdd.map(lambda x: doc_count(x[0], x[1]))
+    inverted.dct = word_counts_length.collectAsMap()
+    writeIdx(inverted, directory, name)
+    return inverted
+
+
+# ************************** END CREATE IMPROVED INDEXES *******************************
+
+# ************************** END CREATE INDEXES *******************************
 
 
 # ************************** SEARCH BODY BY COSIM *******************************
@@ -112,8 +242,8 @@ def cosine_similarity(D, Q):
 
 
 def get_top_n(sim_dict):
-    lst= sorted([(doc_id, builtins.round(score, 5)) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
-                  reverse=True)[:100]
+    lst = sorted([(doc_id, builtins.round(score, 5)) for doc_id, score in sim_dict.items()], key=lambda x: x[1],
+                 reverse=True)[:100]
     id_title_dct = InvertedIndex.read_index('title', 'index_title_dct')
     return [(int(x[0]), id_title_dct.get(x[0], 0)) for x in lst]
 
@@ -171,28 +301,21 @@ def get_page_stats(wiki_ids, path):
     with open(path, 'rb') as f:  # read in the dictionary from disk
         wid2pr = pickle.loads(f.read())
     result = []
-    for id in wiki_ids:
-        result.append(wid2pr.get(id, 0))
+    for doc_id in wiki_ids:
+        result.append(wid2pr.get(doc_id, 0))
     return result
-# ************************** END GET PAGE RANK  *******************************
 
+
+# ************************** END GET PAGE RANK  *******************************
 
 
 # ************************** SEARCH  *******************************
 
-
-def improved_tokenize(text):
-    list_of_tokens =  [stemmer.stem(token.group()) for token in RE_WORD.finditer(text.lower()) if token.group() not in all_stopwords] ##is it work?
-    return list_of_tokens
-
-
 def search_back(clean_query):
     idx_title = InvertedIndex.read_index('search_title', 'index_title')
     idx_text = InvertedIndex.read_index('search_text', 'index_text')
-    # topNtitle = get_topN_score_for_queries(clean_query,idx_title)
-    # topNtext = get_topN_score_for_queries(clean_query,idx_text)
-    dct_title = InvertedIndex.read_index('search_title', 'index_title_dct')
-    DL_title = dict(map(lambda tup: (tup[0], len(tup[1].split(' '))), dct_title.items()))
+    dct_title = InvertedIndex.read_index('title', 'index_title_dct')
+    DL_title = InvertedIndex.read_index('search_title', 'index_title_dct')
     DL_text = InvertedIndex.read_index('search_text', 'index_text_dct')
     bm25title = BM25_from_index(idx_title, DL_title)
     bm25text = BM25_from_index(idx_text, DL_text)
@@ -203,7 +326,6 @@ def search_back(clean_query):
 
 
 def merge_results(title_scores, body_scores, title_weight=0.5, text_weight=0.5, N=3):
-    # YOUR CODE HERE
     title_dict = dict(title_scores)
     body_dict = dict(body_scores)
     docs_id_for_query = set(list(title_dict.keys()) + list(body_dict.keys()))
@@ -212,6 +334,5 @@ def merge_results(title_scores, body_scores, title_weight=0.5, text_weight=0.5, 
         allscores.append((docid, title_dict.get(docid, 0) * title_weight + body_dict.get(docid, 0) * text_weight))
     score_sorted = sorted(allscores, key=lambda x: x[1], reverse=True)[:N]
     return score_sorted
-
 
 # ************************** END SEARCH  *******************************

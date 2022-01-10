@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from search_backend import *
 
 #OUR
+#read all indices before opening the server
 bucket_name = 'ir-project-noam-and-shiri'
 idx_title = InvertedIndex.read_index('.', 'index_title')
 idx_text = InvertedIndex.read_index('.', 'index_text')

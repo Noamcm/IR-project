@@ -1,6 +1,16 @@
 from flask import Flask, request, jsonify
 from search_backend import *
 
+#OUR
+bucket_name = 'ir-project-noam-and-shiri'
+idx_title = InvertedIndex.read_index('.', 'index_title')
+idx_text = InvertedIndex.read_index('.', 'index_text')
+idx_anchor = InvertedIndex.read_index('.', 'index_anchor')
+dct_title = InvertedIndex.read_index('.', 'index_title_names')
+DL_title = InvertedIndex.read_index('.', 'index_title_dct')
+DL_text = InvertedIndex.read_index('.', 'index_text_dct')
+DL_anchor = InvertedIndex.read_index('.', 'index_anchor_dct')
+
 
 class MyFlaskApp(Flask):
     def run(self, host=None, port=None, debug=None, **options):
@@ -34,8 +44,7 @@ def search():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    clean_query = improved_tokenize(query)
-    res = search_back(clean_query)
+    res = search_back(query,bucket_name,idx_title,idx_text,idx_anchor,dct_title,DL_title,DL_text,DL_anchor)
     # END SOLUTION
     return jsonify(res)
 
@@ -62,10 +71,7 @@ def search_body():
         return jsonify(res)
     # BEGIN SOLUTION
     # TO-DO : clean query, search it, return ranking
-    clean_query = tokenize(query)
-    idx_body = InvertedIndex.read_index('text', 'index_text')
-    tfidf_queries_score = get_topN_score_for_queries(clean_query, idx_body)
-    res = tfidf_queries_score  # to change
+    res= calculate_tfidf(query, idx_text,DL_text, bucket_name,dct_title,"text")
     # END SOLUTION
     return jsonify(res)
 
@@ -92,9 +98,7 @@ def search_title():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    clean_query = tokenize(query)
-    idx_title = InvertedIndex.read_index('title', 'index_title')
-    res = search_by_binary(clean_query,idx_title)
+    res = search_by_binary(query, idx_title, bucket_name,dct_title,"title")
     # END SOLUTION
     return jsonify(res)
 
@@ -122,9 +126,7 @@ def search_anchor():
     if len(query) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    clean_query = tokenize(query)
-    idx_anchor = InvertedIndex.read_index('anchor','index_anchor')
-    res = search_by_binary(clean_query,idx_anchor)
+    res = search_by_binary(query, idx_anchor, bucket_name,dct_title,"anchor")
     # END SOLUTION
     return jsonify(res)
 
@@ -150,7 +152,7 @@ def get_pagerank():
     if len(wiki_ids) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    res = get_page_stats(wiki_ids,'./pagerank')
+    res = get_page_stats(wiki_ids, './pagerank.pkl')
     # END SOLUTION
     return jsonify(res)
 
@@ -178,8 +180,7 @@ def get_pageview():
     if len(wiki_ids) == 0:
         return jsonify(res)
     # BEGIN SOLUTION
-    res = get_page_stats(wiki_ids,'./pageview') #to check location
-
+    res = get_page_stats(wiki_ids, './pageview.pkl')  # to check location
     # END SOLUTION
     return jsonify(res)
 

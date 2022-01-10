@@ -1,31 +1,16 @@
-# from collections import Counter, OrderedDict
-# from graphframes import *
+
+
 from inverted_index_gcp import *
-# from itertools import islice, count, groupby
-from nltk.corpus import stopwords
 import hashlib
 import builtins
 import pandas as pd
 import pickle
-# from nltk.stem.porter import *
-# from nltk.stem.porter import *
-# from operator import itemgetter
-# from pathlib import Path
-# from pyspark import SparkContext, SparkConf
-# from pyspark.ml.feature import Tokenizer, RegexTokenizer
-# from pyspark.sql import *
-# from pyspark.sql import SQLContext
-# from pyspark.sql.functions import *
-# from time import time
-# from timeit import timeit
-# import os
-# import itertools
-# import sys
-# import pyspark
-# import math
-# import numpy as np
-# import re
+
+
 from BM25_from_index import *
+import nltk
+nltk.download('stopwords')
+from nltk.corpus import stopwords
 
 # stemmer = PorterStemmer()
 all_stopwords = frozenset(stopwords.words('english'))

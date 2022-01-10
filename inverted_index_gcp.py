@@ -160,9 +160,9 @@ class InvertedIndex:
         """
         with closing(MultiFileReader(bucket)) as reader:
             for w, locs in self.posting_locs.items():
-                b = reader.read(locs, self.df[w] * TUPLE_SIZE,directory)
+                b = reader.read(locs, self.df.get(w,0) * TUPLE_SIZE,directory)
                 posting_list = []
-                for i in range(self.df[w]):
+                for i in range(self.df.get(w,0)):
                     doc_id = int.from_bytes(b[i * TUPLE_SIZE:i * TUPLE_SIZE + 4], 'big')
                     tf = int.from_bytes(b[i * TUPLE_SIZE + 4:(i + 1) * TUPLE_SIZE], 'big')
                     posting_list.append((doc_id, tf))
@@ -220,10 +220,12 @@ class InvertedIndex:
 
     def read_posting_list(self, w,bucket,directory):
         with closing(MultiFileReader(bucket)) as reader:
-            locs = self.posting_locs[w]
-            b = reader.read(locs, self.df[w] * TUPLE_SIZE,directory)
+            locs = self.posting_locs.get(w,None)
+            if locs is None:
+                return []
+            b = reader.read(locs, self.df.get(w,0) * TUPLE_SIZE,directory)
             posting_list = []
-            for i in range(self.df[w]):
+            for i in range(self.df.get(w,0)):
                 doc_id = int.from_bytes(b[i * TUPLE_SIZE:i * TUPLE_SIZE + 4], 'big')
                 tf = int.from_bytes(b[i * TUPLE_SIZE + 4:(i + 1) * TUPLE_SIZE], 'big')
                 posting_list.append((doc_id, tf))

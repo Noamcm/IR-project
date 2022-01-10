@@ -26,8 +26,8 @@ def get_candidate_documents(query_to_search, index, words, pls):
                                                                value: tfidf score.
     """
     candidates = []
-    for i in range(len(words)):
-        if index.df.get(words[i], None) is not None:
+    for i in range(len(words)): 
+        if index.df.get(words[i], None) is not None: #if the term is in our data
             candidates += (pls[i])
     return np.unique(candidates)
 
@@ -50,7 +50,6 @@ class BM25_from_index:
         self.DL = DL
         self.N = len(DL)
         self.AVGDL = sum(DL.values()) / self.N
-        # self.words, self.pls = zip(*self.index.posting_lists_iter())
 
     def calc_idf(self, list_of_tokens):
         """
@@ -67,10 +66,10 @@ class BM25_from_index:
                                                     value: bm25 idf score
         """
         idf = {}
-        for term in list_of_tokens:
+        for term in list_of_tokens: # loop through the terms in the query and not all the words in the corpus
             if self.index.df.get(term, None) is not None:
                 n_ti = self.index.df[term]
-                idf[term] = math.log(1 + (self.N - n_ti + 0.5) / (n_ti + 0.5))
+                idf[term] = math.log(1 + (self.N - n_ti + 0.5) / (n_ti + 0.5)) 
             else:
                 pass
         return idf
@@ -97,15 +96,14 @@ class BM25_from_index:
         pls = []
         words = list(set(query_terms))
         for term in words:
-            pls.append(self.index.read_posting_list(term, bucket_name, directory)[:2500])
+            pls.append(self.index.read_posting_list(term, bucket_name, directory)[:2500]) #top 2500 doc-ids in the term's posting list
         candidates = get_candidate_documents(query_terms, self.index, words, pls)
-        docid_score = []
+        docid_score = [] # each element in this list is a tuple in the format: (doc-id, BM25score)
         for candidate in candidates:
             docid_score.append((candidate, self._score(query_terms, candidate, pls, words)))
         docid_score_sorted = sorted([(doc_id, score) for doc_id, score in docid_score], key=lambda x: x[1],
                                     reverse=True)[:N]
         return docid_score_sorted
-        # raise NotImplementedError()
 
     def _score(self, query, doc_id, pls, words):
         """
@@ -122,11 +120,9 @@ class BM25_from_index:
         """
         score = 0.0
         doc_len = self.DL.get(str(doc_id), 0)
-        #         for i in range(len(words)):
-        #         if index.df.get(words[i],None) is not None:
         for term in query:
             if self.index.df.get(term, None) is not None:
-                term_frequencies = dict(pls[words.index(term)])  ####
+                term_frequencies = dict(pls[words.index(term)])  
                 if term_frequencies.get(doc_id, None) is not None:
                     freq = term_frequencies[doc_id]
                     numerator = self.idf[term] * freq * (self.k1 + 1)
